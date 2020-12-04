@@ -70,13 +70,60 @@ func main() {
 		}
 		c.BindJSON(&json)
 		if _, err := sc.Subscriptions.Update(json.SubscriptionID, &stripe.SubscriptionParams{
-			BillingCycleAnchor: stripe.Int64(time.Now().AddDate(0, 0, 5).Unix()),
-			ProrationBehavior:  stripe.String("none"),
+			BillingCycleAnchorNow: stripe.Bool(true),
+			ProrationBehavior:     stripe.String("none"),
 		}); err != nil {
 			c.String(http.StatusBadRequest, "Request failed")
 			return
 		}
 
+		c.String(http.StatusCreated, "Successfully charged")
+	})
+
+	r.POST("/api/subscription/changePlan", func(c *gin.Context) {
+		var json struct {
+			SubscriptionID string `json:"subscriptionId"`
+		}
+		c.BindJSON(&json)
+		sub, _ := sc.Subscriptions.Get(json.SubscriptionID, nil)
+		scd, err := sc.SubscriptionSchedules.New(&stripe.SubscriptionScheduleParams{
+			FromSubscription: stripe.String(json.SubscriptionID),
+		})
+		if err != nil {
+			c.String(http.StatusBadRequest, "Request failed")
+			return
+		}
+		// スケジュールで設定
+		params := &stripe.SubscriptionScheduleParams{
+			EndBehavior: stripe.String("release"),
+			Phases: []*stripe.SubscriptionSchedulePhaseParams{
+				{
+					StartDate:         stripe.Int64(sub.CurrentPeriodStart),
+					EndDate:           stripe.Int64(sub.CurrentPeriodEnd),
+					ProrationBehavior: stripe.String("none"),
+					Items: []*stripe.SubscriptionSchedulePhaseItemParams{
+						{
+							Price:    stripe.String("price_1HtsewJIhAVOVKY0dxbyAI8D"),
+							Quantity: stripe.Int64(1),
+						},
+					},
+				},
+				{
+					StartDate:         stripe.Int64(sub.CurrentPeriodEnd),
+					ProrationBehavior: stripe.String("none"),
+					Items: []*stripe.SubscriptionSchedulePhaseItemParams{
+						{
+							Price:    stripe.String("price_1HtsfbJIhAVOVKY0quGydZf3"),
+							Quantity: stripe.Int64(1),
+						},
+					},
+				},
+			},
+		}
+		if _, err := sc.SubscriptionSchedules.Update(scd.ID, params); err != nil {
+			c.String(http.StatusBadRequest, "Request failed")
+			return
+		}
 		c.String(http.StatusCreated, "Successfully charged")
 	})
 
